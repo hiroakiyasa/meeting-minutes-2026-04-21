@@ -1,56 +1,90 @@
 ---
-description: "画像+テキストをX/Instagram/TikTok/YouTubeに自動投稿。画像1枚からバイラルコピーを生成し4媒体に並列アップロード。"
-argument-hint: "<画像パス> [--context \"補足\"] [--dry-run] [--platforms x,instagram,tiktok,youtube]"
+description: "画像+テキストを X/Instagram/TikTok/YouTube に自動投稿。画像パス/URL/incoming自動検出に対応。"
+argument-hint: "[画像パス or URL] [--context \"補足\"] [--dry-run] [--platforms x,instagram,tiktok,youtube]"
 ---
 
-# /sns — 画像+テキスト自動投稿
+# /sns — 画像+テキスト自動投稿（iPhone同期対応）
 
-画像を1枚渡すだけで、Claude Vision がバイラルな日本語キャプションを4媒体別に生成し、API経由で自動投稿します。
+引数なしで実行すると **`incoming/` フォルダの最新画像** を自動ピックして使用します。
 
-## 使い方
+## 使い方（パターン別）
 
+### パターンA: ローカル画像パス
 ```
 /sns ~/Downloads/image.png
-/sns ~/Downloads/image.png --context "TrailFusion AI の PR"
-/sns ~/Downloads/image.png --dry-run
-/sns ~/Downloads/image.png --platforms x,instagram
 ```
 
-## 処理内容
+### パターンB: GitHub raw URL
+```
+/sns https://github.com/hiroakiyasa/meeting-minutes-2026-04-21/raw/main/incoming/xxx.png
+```
 
-1. **画像解析**: Claude Vision で画像の内容を読み取り（人物・文字・雰囲気）
-2. **コピー生成**: プラットフォーム別にバイラルな日本語キャプションを生成
-   - X: 280字以内、ハッシュタグ1-3
-   - Instagram: 最初3行が命、ハッシュタグ10-15
-   - TikTok: 最初の1行フック型、ハッシュタグ3-5（動画必須のため静止画は動画化）
-   - YouTube Shorts: タイトル60字+概要欄（静止画は15秒動画化）
-3. **動画化**: TikTok/YouTube向けに ffmpeg で静止画→9:16 15秒動画（ケンバーンズ効果）
-4. **API投稿**: 4媒体に並列アップロード
+### パターンC: incoming/ の最新画像を自動利用（iPhoneから送ったケース）
+```
+/sns
+/sns --context "MCPまとめ"
+```
 
-## 実行
+## 動作フロー
 
-ユーザーから画像パスが渡されたら、以下を実行:
+1. **画像ソース判定**
+   - 引数がパス → ローカル読込
+   - 引数がhttps URL → ダウンロード
+   - 引数なし → `incoming/` の最新ファイル
 
+2. **GitHub自動push**（未pushならscripts/incoming-push.sh実行）
+   - → raw URLを取得
+   - 他媒体（Instagram等）からも参照可能に
+
+3. **画像解析**（Claude Vision / AI）
+4. **プラットフォーム別コピー生成**
+5. **API経由で投稿**
+
+## 実行コマンド
+
+引数がある場合:
 ```bash
 cd /Users/user/Applications/marketing && \
-bash .agents/skills/sns-auto-publisher/scripts/run.sh single "$ARGUMENTS"
+  bash .agents/skills/sns-auto-publisher/scripts/run.sh single "$ARGUMENTS"
 ```
 
-`$ARGUMENTS` には画像パスとフラグが入ります。
+引数なしの場合（incoming自動検出）:
+```bash
+cd /Users/user/Applications/marketing && \
+  LATEST=$(ls -t incoming/*.{png,jpg,jpeg,heic,webp} 2>/dev/null | head -1) && \
+  [[ -n "$LATEST" ]] && \
+  bash .agents/skills/sns-auto-publisher/scripts/run.sh single "$LATEST"
+```
 
-## 必要な .env 設定
+## iPhoneから画像を送る方法
 
-- `ANTHROPIC_API_KEY` (コピー生成・必須)
-- `X_API_KEY/SECRET`, `X_ACCESS_TOKEN/SECRET` (X投稿)
-- `IG_USER_ID`, `IG_ACCESS_TOKEN`, `IG_PUBLIC_MEDIA_URL` (Instagram)
-- `TIKTOK_ACCESS_TOKEN` (TikTok)
-- `YT_CLIENT_ID/SECRET`, `YT_REFRESH_TOKEN` (YouTube)
+### 方法1: iCloud Drive 経由（推奨）
+1. iPhone の「ファイル」アプリ
+2. iCloud Drive → Applications → marketing → incoming （初回のみmkdir）
+3. 写真を共有 → 「ファイルに保存」 → 上記フォルダ
+4. Mac側に数秒で同期
+5. Claude Code Remote で `/sns` と打つ
 
-未設定の場合は `--dry-run` でコピー生成のみ確認できます。
+### 方法2: AirDrop → Downloads
+1. iPhone で画像を選択 → 共有 → AirDrop → 自分のMac
+2. Downloads に届く
+3. `/sns ~/Downloads/filename.png` と指示
+
+### 方法3: iPhone Shortcut（最速・要初回設定）
+ショートカット アプリで作成:
+- 入力: 共有シート（画像）
+- アクション:
+  1. ファイルに保存 → `iCloud Drive/Applications/marketing/incoming/`
+- 名前: "マーケに送る"
+
+→ iPhone写真アプリ → 共有 → "マーケに送る" → Macに同期 → Claude Codeで `/sns`
+
+## 必要な .env
+- `ANTHROPIC_API_KEY`（コピー生成用）
+- `X_API_KEY/SECRET`, `X_ACCESS_TOKEN/SECRET`（X投稿）
+- 他媒体のキー（Instagram, TikTok, YouTube）
 
 ## 出力
-
-- `docs/copy/YYYY-MM-DD-HHMMSS.json` — 生成されたコピー
-- `docs/copy/YYYY-MM-DD-HHMMSS.md` — 人間向けプレビュー
-- `docs/experiments/YYYY-MM-DD-HHMMSS-slideshow.mp4` — TikTok/YT用の動画化済みファイル
-- `logs/YYYY-MM-DD.md` — 投稿ログ
+- `docs/presentations/incoming/<date>-<name>.png` — GitHub push済み
+- `docs/copy/<date>-<time>.md` — 生成コピー
+- `logs/<date>.md` — 投稿ログ
