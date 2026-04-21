@@ -1,7 +1,7 @@
 {
   "cover": {
     "title": "AI全体推進チーム 定例会 議事録",
-    "subtitle": "2026年04月21日（火）08:00-09:00  ·  ハイブリッド版（テキスト+チャート+Mermaid）",
+    "subtitle": "2026年04月21日（火）08:00-09:00",
     "footer": "作成: AI推進チーム事務局 / skill: jp-automation-pptx v1.0"
   },
   "summary": {
@@ -54,12 +54,7 @@
         "「トヨタらしいAI活用」として全社標準化を推進",
         "戦略会議で車両開発AI事例を経営層報告、「効果明確化」「2ヶ月毎フォロー」を要求",
         "6月AI活用展示会で進捗報告（上原役員出張で日程調整の可能性あり）"
-      ],
-      "visual": {
-        "type": "mermaid",
-        "id": "m_escalation",
-        "code": "flowchart LR\n    A[AI推進チーム] -->|事例報告| B[戦略会議]\n    B -->|要求: 効果明確化| C[経営層]\n    B -->|要求: 2ヶ月毎フォロー| C\n    A -->|工程ばらし連携| D[TPS推進部<br/>大石さん]\n    D -->|全社標準化| E[トヨタ全社]\n    A -->|6月報告| F[AI活用展示会]\n    F --> C\n    style A fill:#2E6BC0,color:#fff\n    style C fill:#C44E52,color:#fff\n    style D fill:#55A868,color:#fff\n    style F fill:#DD8452,color:#fff"
-      }
+      ]
     },
     {
       "header": "3. 予算確保・人材育成",
@@ -71,21 +66,7 @@
         "安田さん主体でPTK/EPFマネージャー向け説明会を企画",
         "【質疑】管理職には可能/不可の見極め等AIリテラシーが必要（上野）",
         "【回答】マネージャー特化教材を作成（安田）"
-      ],
-      "visual": {
-        "type": "priority_matrix",
-        "id": "c_priority",
-        "title": "決定事項の優先度マトリクス",
-        "items": [
-          ["Teams議事録活用", 8, 7],
-          ["AI展開指針",      7, 8],
-          ["TPS連携",         9, 6],
-          ["6月経営層報告",   7, 9],
-          ["予算要求準備",    6, 9],
-          ["管理職説明会",    6, 7]
-        ],
-        "caption": "右上(緊急度高×効果大)の3件を最優先。6月報告・予算要求・TPS連携。"
-      }
+      ]
     }
   ],
   "full_visuals": [
@@ -106,13 +87,6 @@
       "marker_date": "2026-06-15",
       "marker_label": "経営層報告",
       "note": "6月15日の経営層報告が全活動のマイルストーン。2ヶ月毎フォロー要求に整合。"
-    },
-    {
-      "id": "decision_flow",
-      "type": "mermaid",
-      "header": "意思決定フロー ─ 承認と実行の構造",
-      "code": "stateDiagram-v2\n    [*] --> 起案\n    起案 --> WG討議 : 品質WG/展開WG\n    WG討議 --> 定例会\n    定例会 --> 決定 : 全会一致\n    決定 --> 実行: 7ToDo\n    実行 --> 展示会報告\n    展示会報告 --> 経営層\n    経営層 --> 次サイクル: 2ヶ月毎\n    次サイクル --> 起案",
-      "note": "定例会→展示会→経営層→次サイクルの2ヶ月周期。経営層要請の「2ヶ月毎フォロー」に整合。"
     }
   ],
   "decisions": [
@@ -124,7 +98,7 @@
     "PTK・EPFマネージャー向け説明会を実施"
   ],
   "todos": {
-    "with_load_chart": true,
+    "with_load_chart": false,
     "items": [
       ["渡辺", "ハッカソン知見を品質WGに共有",      "5月末"],
       ["田原", "議事録アシスタント試験設計",        "5月中"],
@@ -138,6 +112,6 @@
   "closing": {
     "title": "次回: 2026年5月 予定",
     "subtitle": "マイルストーン: 6月15日 AI活用展示会（経営層報告）",
-    "footer": "skill: jp-automation-pptx v1.0 / automation + data-visualization + mermaid-diagrams hybrid"
+    "footer": "skill: jp-automation-pptx v1.0"
   }
 }
