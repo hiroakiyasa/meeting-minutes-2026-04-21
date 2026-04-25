@@ -1,0 +1,133 @@
+name: Auto-post to SNS on incoming
+
+on:
+  push:
+    paths:
+      - 'incoming/**'
+  workflow_dispatch:
+    inputs:
+      file:
+        description: 'Path to media file in repo (relative)'
+        required: true
+        type: string
+      mode:
+        description: 'image or video'
+        required: true
+        default: 'image'
+        type: choice
+        options: [image, video]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed files
+        id: changed
+        env:
+          INPUT_FILE: ${{ inputs.file }}
+          INPUT_MODE: ${{ inputs.mode }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            FILES="$INPUT_FILE"
+            MODE="$INPUT_MODE"
+          else
+            FILES=$(git diff --name-only --diff-filter=A HEAD^ HEAD | grep "^incoming/" | head -1 || true)
+            EXT="${FILES##*.}"
+            case "$(echo "$EXT" | tr '[:upper:]' '[:lower:]')" in
+              mp4|mov|m4v|webm) MODE=video ;;
+              *) MODE=image ;;
+            esac
+          fi
+          echo "file=$FILES" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "Detected: $FILES (mode=$MODE)"
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+
+      - name: Install deps
+        run: |
+          npm install dotenv
+          pip install anthropic
+
+      - name: Install ffmpeg
+        run: sudo apt-get install -y ffmpeg
+
+      - name: Generate copy
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          INPUT_FILE: ${{ steps.changed.outputs.file }}
+          INPUT_MODE: ${{ steps.changed.outputs.mode }}
+        run: |
+          mkdir -p docs/copy
+          STAMP=$(date +%Y-%m-%d-%H%M%S)
+          OUT="docs/copy/$STAMP"
+          if [[ "$INPUT_MODE" == "image" ]]; then
+            python3 .agents/skills/sns-auto-publisher/scripts/generate_copy.py \
+              --images "$INPUT_FILE" --out "$OUT" --mode single \
+              --template-fallback
+          else
+            FRAME=$(mktemp).png
+            ffmpeg -i "$INPUT_FILE" -frames:v 1 "$FRAME" -y 2>/dev/null
+            python3 .agents/skills/sns-auto-publisher/scripts/generate_copy.py \
+              --images "$FRAME" --out "$OUT" --mode single \
+              --template-fallback
+          fi
+          python3 - <<'PYEOF'
+import json, os
+out = os.environ['OUT_PATH']
+d = json.load(open(out + '.json'))
+p = d['platforms']
+flat = {
+  'x': p['x'],
+  'instagram': p['instagram'],
+  'tiktok': p['tiktok'],
+  'youtube': p['youtube']
+}
+json.dump(flat, open(out + '.flat.json','w'), ensure_ascii=False, indent=2)
+PYEOF
+          echo "FLAT_COPY=$OUT.flat.json" >> "$GITHUB_ENV"
+
+      - name: Build public URL
+        id: url
+        env:
+          INPUT_FILE: ${{ steps.changed.outputs.file }}
+          REPO_FULL: ${{ github.repository }}
+        run: |
+          echo "url=https://raw.githubusercontent.com/$REPO_FULL/main/$INPUT_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Post to all platforms
+        env:
+          INPUT_FILE: ${{ steps.changed.outputs.file }}
+          INPUT_MODE: ${{ steps.changed.outputs.mode }}
+          PUBLIC_URL: ${{ steps.url.outputs.url }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
+          TIKTOK_AUDIT_PASSED: ${{ secrets.TIKTOK_AUDIT_PASSED }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+          YT_EXPECTED_CHANNEL_ID: ${{ secrets.YT_EXPECTED_CHANNEL_ID }}
+        run: |
+          node scripts/post-all-platforms.js \
+            --mode "$INPUT_MODE" \
+            --media "$INPUT_FILE" \
+            --copy "$FLAT_COPY" \
+            --public-url "$PUBLIC_URL"
