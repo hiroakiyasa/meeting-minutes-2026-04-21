@@ -75,63 +75,45 @@ jobs:
 
       - name: Install deps
         if: steps.changed.outputs.skip != 'true'
-        run: npm install dotenv
+        run: |
+          npm install dotenv
+          pip install anthropic
 
       - name: Install ffmpeg
         if: steps.changed.outputs.skip != 'true'
         run: sudo apt-get install -y ffmpeg
 
-      - name: Wait for matching caption sidecar
-        if: steps.changed.outputs.skip != 'true' && github.event_name == 'push'
-        env:
-          INPUT_FILE: ${{ steps.changed.outputs.file }}
-        run: |
-          BASE="${INPUT_FILE%.*}"
-          # Try up to 8 times (about 40s) for the sidecar to appear via push or prior commit
-          for i in 1 2 3 4 5 6 7 8; do
-            if [[ -f "${BASE}.txt" ]]; then
-              echo "Found ${BASE}.txt"; exit 0
-            fi
-            echo "Waiting for ${BASE}.txt (attempt $i)..."
-            sleep 5
-            git pull --rebase origin main 2>/dev/null || true
-          done
-          echo "::warning::No matching .txt sidecar — falling back to filename"
-
-      - name: Resolve caption from sidecar or input
+      - name: Generate viral SNS copy via Claude Vision
         if: steps.changed.outputs.skip != 'true'
         id: caption
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           INPUT_FILE: ${{ steps.changed.outputs.file }}
+          INPUT_MODE: ${{ steps.changed.outputs.mode }}
           INPUT_CAPTION: ${{ inputs.caption }}
         run: |
           mkdir -p docs/copy
           STAMP=$(date +%Y-%m-%d-%H%M%S)
-          OUT="docs/copy/$STAMP.flat.json"
-
-          # Priority: workflow_dispatch input > .txt sidecar (same name) > caption.txt > fallback
-          BASE="${INPUT_FILE%.*}"
-          CAPTION=""
-          if [[ -n "$INPUT_CAPTION" ]]; then
-            CAPTION="$INPUT_CAPTION"
-            echo "Using workflow_dispatch caption input"
-          elif [[ -f "${BASE}.txt" ]]; then
-            CAPTION="$(cat "${BASE}.txt")"
-            echo "Using sidecar: ${BASE}.txt"
-          elif [[ -f "incoming/caption.txt" ]]; then
-            CAPTION="$(cat incoming/caption.txt)"
-            echo "Using shared incoming/caption.txt"
-          else
-            CAPTION="$(basename "$INPUT_FILE")"
-            echo "⚠️  No caption found — using filename: $CAPTION"
-          fi
-
-          # Pass caption via env, build copy.flat.json — same caption for ALL platforms
-          export CAPTION_TEXT="$CAPTION"
+          OUT="docs/copy/$STAMP"
           export OUT_PATH="$OUT"
-          python3 -c "import json,os;c=os.environ['CAPTION_TEXT'];d={'x':c[:280],'instagram':c,'tiktok':c,'youtube':{'title':c.split(chr(10))[0][:100],'description':c}};open(os.environ['OUT_PATH'],'w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False,indent=2))"
-          echo "FLAT_COPY=$OUT" >> "$GITHUB_ENV"
-          echo "Caption preview: $(echo "$CAPTION" | head -c 120)..."
+          if [[ "$INPUT_MODE" == "image" ]]; then
+            python3 .agents/skills/sns-auto-publisher/scripts/generate_copy.py \
+              --images "$INPUT_FILE" --out "$OUT" --mode single \
+              --context "$INPUT_CAPTION" \
+              --template-fallback
+          else
+            FRAME=$(mktemp).png
+            ffmpeg -i "$INPUT_FILE" -frames:v 1 "$FRAME" -y 2>/dev/null
+            python3 .agents/skills/sns-auto-publisher/scripts/generate_copy.py \
+              --images "$FRAME" --out "$OUT" --mode single \
+              --context "$INPUT_CAPTION" \
+              --template-fallback
+          fi
+          # Flatten to platform-only JSON
+          python3 -c "import json,os; o=os.environ['OUT_PATH']; d=json.load(open(o+'.json')); p=d['platforms']; json.dump({'x':p['x'],'instagram':p['instagram'],'tiktok':p['tiktok'],'youtube':p['youtube']}, open(o+'.flat.json','w'), ensure_ascii=False, indent=2)"
+          echo "FLAT_COPY=$OUT.flat.json" >> "$GITHUB_ENV"
+          echo "==== Generated copy preview ===="
+          cat "$OUT.flat.json"
 
       - name: Build public URL
         if: steps.changed.outputs.skip != 'true'
