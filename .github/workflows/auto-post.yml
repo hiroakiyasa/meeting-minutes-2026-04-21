@@ -57,21 +57,49 @@ jobs:
           fi
           echo "file=$FILES" >> "$GITHUB_OUTPUT"
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          if [[ -z "$FILES" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::No media file in this push (likely caption-only). Skipping cleanly."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "Detected: $FILES (mode=$MODE)"
 
       - uses: actions/setup-node@v4
+        if: steps.changed.outputs.skip != 'true'
         with: { node-version: '20' }
 
       - uses: actions/setup-python@v5
+        if: steps.changed.outputs.skip != 'true'
         with: { python-version: '3.12' }
 
       - name: Install deps
+        if: steps.changed.outputs.skip != 'true'
         run: npm install dotenv
 
       - name: Install ffmpeg
+        if: steps.changed.outputs.skip != 'true'
         run: sudo apt-get install -y ffmpeg
 
+      - name: Wait for matching caption sidecar
+        if: steps.changed.outputs.skip != 'true' && github.event_name == 'push'
+        env:
+          INPUT_FILE: ${{ steps.changed.outputs.file }}
+        run: |
+          BASE="${INPUT_FILE%.*}"
+          # Try up to 8 times (about 40s) for the sidecar to appear via push or prior commit
+          for i in 1 2 3 4 5 6 7 8; do
+            if [[ -f "${BASE}.txt" ]]; then
+              echo "Found ${BASE}.txt"; exit 0
+            fi
+            echo "Waiting for ${BASE}.txt (attempt $i)..."
+            sleep 5
+            git pull --rebase origin main 2>/dev/null || true
+          done
+          echo "::warning::No matching .txt sidecar — falling back to filename"
+
       - name: Resolve caption from sidecar or input
+        if: steps.changed.outputs.skip != 'true'
         id: caption
         env:
           INPUT_FILE: ${{ steps.changed.outputs.file }}
@@ -106,6 +134,7 @@ jobs:
           echo "Caption preview: $(echo "$CAPTION" | head -c 120)..."
 
       - name: Build public URL
+        if: steps.changed.outputs.skip != 'true'
         id: url
         env:
           INPUT_FILE: ${{ steps.changed.outputs.file }}
@@ -114,6 +143,7 @@ jobs:
           echo "url=https://raw.githubusercontent.com/$REPO_FULL/main/$INPUT_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Post to all platforms
+        if: steps.changed.outputs.skip != 'true'
         env:
           INPUT_FILE: ${{ steps.changed.outputs.file }}
           INPUT_MODE: ${{ steps.changed.outputs.mode }}
