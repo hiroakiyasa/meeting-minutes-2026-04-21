@@ -74,6 +74,7 @@ jobs:
           mkdir -p docs/copy
           STAMP=$(date +%Y-%m-%d-%H%M%S)
           OUT="docs/copy/$STAMP"
+          export OUT_PATH="$OUT"
           if [[ "$INPUT_MODE" == "image" ]]; then
             python3 .agents/skills/sns-auto-publisher/scripts/generate_copy.py \
               --images "$INPUT_FILE" --out "$OUT" --mode single \
@@ -85,19 +86,7 @@ jobs:
               --images "$FRAME" --out "$OUT" --mode single \
               --template-fallback
           fi
-          python3 - <<'PYEOF'
-import json, os
-out = os.environ['OUT_PATH']
-d = json.load(open(out + '.json'))
-p = d['platforms']
-flat = {
-  'x': p['x'],
-  'instagram': p['instagram'],
-  'tiktok': p['tiktok'],
-  'youtube': p['youtube']
-}
-json.dump(flat, open(out + '.flat.json','w'), ensure_ascii=False, indent=2)
-PYEOF
+          python3 -c "import json,os; o=os.environ['OUT_PATH']; d=json.load(open(o+'.json')); p=d['platforms']; json.dump({'x':p['x'],'instagram':p['instagram'],'tiktok':p['tiktok'],'youtube':p['youtube']}, open(o+'.flat.json','w'), ensure_ascii=False, indent=2)"
           echo "FLAT_COPY=$OUT.flat.json" >> "$GITHUB_ENV"
 
       - name: Build public URL
