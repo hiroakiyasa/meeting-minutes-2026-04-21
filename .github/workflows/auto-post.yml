@@ -16,6 +16,10 @@ on:
         default: 'image'
         type: choice
         options: [image, video]
+      caption:
+        description: 'Caption text for ALL platforms (overrides .txt sidecar)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -40,7 +44,11 @@ jobs:
             FILES="$INPUT_FILE"
             MODE="$INPUT_MODE"
           else
-            FILES=$(git diff --name-only --diff-filter=A HEAD^ HEAD | grep "^incoming/" | head -1 || true)
+            # Pick the first added media file in incoming/ (skip .txt sidecars)
+            FILES=$(git diff --name-only --diff-filter=A HEAD^ HEAD \
+              | grep "^incoming/" \
+              | grep -viE '\.txt$|\.md$|\.json$' \
+              | head -1 || true)
             EXT="${FILES##*.}"
             case "$(echo "$EXT" | tr '[:upper:]' '[:lower:]')" in
               mp4|mov|m4v|webm) MODE=video ;;
@@ -58,36 +66,44 @@ jobs:
         with: { python-version: '3.12' }
 
       - name: Install deps
-        run: |
-          npm install dotenv
-          pip install anthropic
+        run: npm install dotenv
 
       - name: Install ffmpeg
         run: sudo apt-get install -y ffmpeg
 
-      - name: Generate copy
+      - name: Resolve caption from sidecar or input
+        id: caption
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           INPUT_FILE: ${{ steps.changed.outputs.file }}
-          INPUT_MODE: ${{ steps.changed.outputs.mode }}
+          INPUT_CAPTION: ${{ inputs.caption }}
         run: |
           mkdir -p docs/copy
           STAMP=$(date +%Y-%m-%d-%H%M%S)
-          OUT="docs/copy/$STAMP"
-          export OUT_PATH="$OUT"
-          if [[ "$INPUT_MODE" == "image" ]]; then
-            python3 .agents/skills/sns-auto-publisher/scripts/generate_copy.py \
-              --images "$INPUT_FILE" --out "$OUT" --mode single \
-              --template-fallback
+          OUT="docs/copy/$STAMP.flat.json"
+
+          # Priority: workflow_dispatch input > .txt sidecar (same name) > caption.txt > fallback
+          BASE="${INPUT_FILE%.*}"
+          CAPTION=""
+          if [[ -n "$INPUT_CAPTION" ]]; then
+            CAPTION="$INPUT_CAPTION"
+            echo "Using workflow_dispatch caption input"
+          elif [[ -f "${BASE}.txt" ]]; then
+            CAPTION="$(cat "${BASE}.txt")"
+            echo "Using sidecar: ${BASE}.txt"
+          elif [[ -f "incoming/caption.txt" ]]; then
+            CAPTION="$(cat incoming/caption.txt)"
+            echo "Using shared incoming/caption.txt"
           else
-            FRAME=$(mktemp).png
-            ffmpeg -i "$INPUT_FILE" -frames:v 1 "$FRAME" -y 2>/dev/null
-            python3 .agents/skills/sns-auto-publisher/scripts/generate_copy.py \
-              --images "$FRAME" --out "$OUT" --mode single \
-              --template-fallback
+            CAPTION="$(basename "$INPUT_FILE")"
+            echo "⚠️  No caption found — using filename: $CAPTION"
           fi
-          python3 -c "import json,os; o=os.environ['OUT_PATH']; d=json.load(open(o+'.json')); p=d['platforms']; json.dump({'x':p['x'],'instagram':p['instagram'],'tiktok':p['tiktok'],'youtube':p['youtube']}, open(o+'.flat.json','w'), ensure_ascii=False, indent=2)"
-          echo "FLAT_COPY=$OUT.flat.json" >> "$GITHUB_ENV"
+
+          # Pass caption via env, build copy.flat.json — same caption for ALL platforms
+          export CAPTION_TEXT="$CAPTION"
+          export OUT_PATH="$OUT"
+          python3 -c "import json,os;c=os.environ['CAPTION_TEXT'];d={'x':c[:280],'instagram':c,'tiktok':c,'youtube':{'title':c.split(chr(10))[0][:100],'description':c}};open(os.environ['OUT_PATH'],'w',encoding='utf-8').write(json.dumps(d,ensure_ascii=False,indent=2))"
+          echo "FLAT_COPY=$OUT" >> "$GITHUB_ENV"
+          echo "Caption preview: $(echo "$CAPTION" | head -c 120)..."
 
       - name: Build public URL
         id: url
