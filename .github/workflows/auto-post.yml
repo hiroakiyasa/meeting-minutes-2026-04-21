@@ -1,9 +1,7 @@
 name: Auto-post to SNS on incoming
 
+# 二重投稿防止: ローカル/sns/snsmovieからの投稿時にAuto-post Workflowが重複起動しないようpush triggerを無効化
 on:
-  push:
-    paths:
-      - 'incoming/**'
   workflow_dispatch:
     inputs:
       file:
